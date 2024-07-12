@@ -1,0 +1,268 @@
+package com.example.myandroidapp;
+
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.os.Bundle;
+import android.text.method.ScrollingMovementMethod;
+import android.view.View;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.lifecycle.LifecycleOwner;
+
+import com.google.common.util.concurrent.ListenableFuture;
+
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.net.Socket;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class MainActivity extends AppCompatActivity {
+    private static final String HOST = "setoai.duckdns.org";
+    private static final int PORT = 5000;
+    private static final int REQUEST_CODE_PERMISSIONS = 10;
+    private static final String[] REQUIRED_PERMISSIONS = {Manifest.permission.CAMERA};
+
+    private ImageView cameraView;
+    private Button enableCameraButton;
+    private Button disableCameraButton;
+    private TextView chatLogView;
+    private EditText chatInputView;
+    private Button sendButton;
+    private Button positiveFeedbackButton;
+    private Button negativeFeedbackButton;
+    private WebView outputWebView;
+
+    private Socket socket;
+    private ObjectOutputStream out;
+    private ObjectInputStream in;
+    private ExecutorService executor = Executors.newSingleThreadExecutor();
+    private ListenableFuture<ProcessCameraProvider> cameraProviderFuture;
+    private boolean isCameraEnabled = false;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        initializeViews();
+        setupListeners();
+        connectToServer();
+
+        if (allPermissionsGranted()) {
+            startCamera();
+        } else {
+            ActivityCompat.requestPermissions(this, REQUIRED_PERMISSIONS, REQUEST_CODE_PERMISSIONS);
+        }
+    }
+
+    private void initializeViews() {
+        cameraView = findViewById(R.id.cameraView);
+        enableCameraButton = findViewById(R.id.enableCameraButton);
+        disableCameraButton = findViewById(R.id.disableCameraButton);
+        chatLogView = findViewById(R.id.chatLogView);
+        chatInputView = findViewById(R.id.chatInputView);
+        sendButton = findViewById(R.id.sendButton);
+        positiveFeedbackButton = findViewById(R.id.positiveFeedbackButton);
+        negativeFeedbackButton = findViewById(R.id.negativeFeedbackButton);
+        outputWebView = findViewById(R.id.outputWebView);
+
+        chatLogView.setMovementMethod(new ScrollingMovementMethod());
+        outputWebView.setWebViewClient(new WebViewClient());
+    }
+
+    private void setupListeners() {
+        enableCameraButton.setOnClickListener(v -> enableCamera());
+        disableCameraButton.setOnClickListener(v -> disableCamera());
+        sendButton.setOnClickListener(v -> sendMessage());
+        positiveFeedbackButton.setOnClickListener(v -> sendFeedback(true));
+        negativeFeedbackButton.setOnClickListener(v -> sendFeedback(false));
+    }
+
+    private void connectToServer() {
+        executor.execute(() -> {
+            try {
+                socket = new Socket(HOST, PORT);
+                out = new ObjectOutputStream(socket.getOutputStream());
+                in = new ObjectInputStream(socket.getInputStream());
+                runOnUiThread(() -> appendToChatLog("Connected to server"));
+            } catch (IOException e) {
+                e.printStackTrace();
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Failed to connect to server", Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
+
+    private void sendMessage() {
+        String message = chatInputView.getText().toString();
+        if (!message.isEmpty()) {
+            executor.execute(() -> {
+                try {
+                    out.writeObject(message);
+                    Object response = in.readObject();
+                    runOnUiThread(() -> {
+                        appendToChatLog("You: " + message);
+                        handleResponse(response);
+                    });
+                } catch (IOException | ClassNotFoundException e) {
+                    e.printStackTrace();
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Error sending message", Toast.LENGTH_SHORT).show());
+                }
+            });
+            chatInputView.setText("");
+        }
+    }
+
+    private void handleResponse(Object response) {
+        if (response instanceof String) {
+            appendToChatLog("Seto AI: " + response);
+        } else if (response instanceof SearchResult) {
+            displaySearchResults((SearchResult) response);
+        } else if (response instanceof MathResult) {
+            displayMathResult((MathResult) response);
+        }
+        // Enable feedback buttons after displaying the response
+        positiveFeedbackButton.setEnabled(true);
+        negativeFeedbackButton.setEnabled(true);
+    }
+
+    private void appendToChatLog(String message) {
+        chatLogView.append(message + "\n");
+    }
+
+    private void displaySearchResults(SearchResult results) {
+        StringBuilder html = new StringBuilder("<html><body>");
+        for (SearchResult.Item item : results.getItems()) {
+            html.append("<h3>").append(item.getTitle()).append("</h3>");
+            html.append("<a href='").append(item.getLink()).append("'>").append(item.getLink()).append("</a><br><br>");
+        }
+        html.append("</body></html>");
+        outputWebView.loadData(html.toString(), "text/html", "UTF-8");
+    }
+
+    private void displayMathResult(MathResult result) {
+        outputWebView.loadData("<html><body><h2>Math Result:</h2><p>" + result.getResult() + "</p></body></html>", "text/html", "UTF-8");
+    }
+
+    private void sendFeedback(boolean isPositive) {
+        executor.execute(() -> {
+            try {
+                out.writeObject(new Feedback(isPositive, chatLogView.getText().toString()));
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "Feedback sent", Toast.LENGTH_SHORT).show();
+                    positiveFeedbackButton.setEnabled(false);
+                    negativeFeedbackButton.setEnabled(false);
+                });
+            } catch (IOException e) {
+                e.printStackTrace();
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Error sending feedback", Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
+
+    private void startCamera() {
+        cameraProviderFuture = ProcessCameraProvider.getInstance(this);
+        cameraProviderFuture.addListener(() -> {
+            try {
+                ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                bindPreview(cameraProvider);
+            } catch (ExecutionException | InterruptedException e) {
+                e.printStackTrace();
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
+
+    private void bindPreview(@NonNull ProcessCameraProvider cameraProvider) {
+        Preview preview = new Preview.Builder().build();
+        CameraSelector cameraSelector = new CameraSelector.Builder()
+                .requireLensFacing(CameraSelector.LENS_FACING_FRONT)
+                .build();
+        ImageAnalysis imageAnalysis = new ImageAnalysis.Builder().build();
+        imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(this), this::analyzeImage);
+        preview.setSurfaceProvider(cameraView.getSurfaceProvider());
+        cameraProvider.bindToLifecycle((LifecycleOwner)this, cameraSelector, preview, imageAnalysis);
+    }
+
+    private void analyzeImage(ImageProxy image) {
+        // Here you would implement face recognition if needed
+        image.close();
+    }
+
+    private void enableCamera() {
+        if (!isCameraEnabled) {
+            startCamera();
+            isCameraEnabled = true;
+            enableCameraButton.setEnabled(false);
+            disableCameraButton.setEnabled(true);
+        }
+    }
+
+    private void disableCamera() {
+        if (isCameraEnabled) {
+            cameraProviderFuture.addListener(() -> {
+                try {
+                    ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
+                    cameraProvider.unbindAll();
+                    isCameraEnabled = false;
+                    enableCameraButton.setEnabled(true);
+                    disableCameraButton.setEnabled(false);
+                } catch (ExecutionException | InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }, ContextCompat.getMainExecutor(this));
+        }
+    }
+
+    private boolean allPermissionsGranted() {
+        for (String permission : REQUIRED_PERMISSIONS) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_CODE_PERMISSIONS) {
+            if (allPermissionsGranted()) {
+                startCamera();
+            } else {
+                Toast.makeText(this, "Permissions not granted by the user.", Toast.LENGTH_SHORT).show();
+                finish();
+            }
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        executor.shutdown();
+        try {
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}

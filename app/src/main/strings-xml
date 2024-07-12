@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Seto AI Android</string>
+    <string name="enable_camera">Enable Camera</string>
+    <string name="disable_camera">Disable Camera</string>
+    <string name="send">Send</string>
+    <string name="enter_message">Enter your message</string>
+    <string name="positive_feedback">Positive</string>
+    <string name="negative_feedback">Negative</string>
+    <string name="connected_to_server">Connected to server</string>
+    <string name="failed_to_connect">Failed to connect to server</string>
+    <string name="error_sending_message">Error sending message</string>
+    <string name="feedback_sent">Feedback sent</string>
+    <string name="error_sending_feedback">Error sending feedback</string>
+    <string name="permissions_not_granted">Permissions not granted by the user.</string>
+</resources>

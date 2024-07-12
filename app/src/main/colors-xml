@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#3498DB</color>
+    <color name="colorPrimaryDark">#2980B9</color>
+    <color name="colorAccent">#E74C3C</color>
+    
+    <color name="textColorPrimary">#2C3E50</color>
+    <color name="textColorSecondary">#7F8C8D</color>
+    
+    <color name="backgroundColor">#ECF0F1</color>
+    <color name="chatBackgroundColor">#FFFFFF</color>
+    
+    <color name="buttonTextColor">#FFFFFF</color>
+    <color name="positiveButtonColor">#2ECC71</color>
+    <color name="negativeButtonColor">#E74C3C</color>
+    
+    <color name="linkColor">#3498DB</color>
+</resources>
